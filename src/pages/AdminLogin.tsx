@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, AlertCircle } from 'lucide-react';
+import { Lock, User, AlertCircle } from 'lucide-react';
 import { adminAuth } from '../lib/adminAuth';
 
 export default function AdminLogin() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,7 @@ export default function AdminLogin() {
     setError('');
     setLoading(true);
 
-    const result = await adminAuth.login(email, password);
+    const result = await adminAuth.login(username, password);
 
     if (result.success) {
       navigate('/adsadmin/dashboard');
@@ -34,8 +34,8 @@ export default function AdminLogin() {
             <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-900 rounded-full mb-4">
               <Lock className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900">管理者ダッシュボード</h1>
-            <p className="text-slate-600 mt-2">管理システムにアクセスするにはログインしてください</p>
+            <h1 className="text-2xl font-bold text-slate-900">广告管理后台</h1>
+            <p className="text-slate-600 mt-2">请登录以访问管理系统</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -48,25 +48,25 @@ export default function AdminLogin() {
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                メールアドレス
+                用户名
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition"
-                  placeholder="メールアドレスを入力"
+                  placeholder="请输入用户名"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                パスワード
+                密码
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -75,7 +75,7 @@ export default function AdminLogin() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none transition"
-                  placeholder="パスワードを入力"
+                  placeholder="请输入密码"
                   required
                   autoComplete="current-password"
                 />
@@ -87,13 +87,13 @@ export default function AdminLogin() {
               disabled={loading}
               className="w-full bg-slate-900 text-white py-3 rounded-lg font-medium hover:bg-slate-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'ログイン中...' : 'ログイン'}
+              {loading ? '登录中...' : '登录'}
             </button>
           </form>
         </div>
 
         <p className="text-center text-slate-400 text-sm mt-6">
-          認証されたユーザーのみアクセス可能
+          仅限授权人员访问
         </p>
       </div>
     </div>
