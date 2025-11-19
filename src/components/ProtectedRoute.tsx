@@ -16,6 +16,14 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     };
 
     checkAuth();
+
+    const { data: authListener } = adminAuth.onAuthStateChange((isAdmin) => {
+      setIsAuthenticated(isAdmin);
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
 
   if (isAuthenticated === null) {
@@ -23,7 +31,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-slate-300 border-t-slate-900"></div>
-          <p className="mt-4 text-slate-600">验证身份中...</p>
+          <p className="mt-4 text-slate-600">認証を確認しています...</p>
         </div>
       </div>
     );

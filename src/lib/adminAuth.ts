@@ -1,62 +1,57 @@
-import { apiClient } from './apiClient';
+import { supabase } from './supabase';
 
 export interface AdminSession {
   user: {
     id: string;
-    username: string;
+    email: string;
   };
   isAdmin: boolean;
 }
 
-function setAuthToken(token: string): void {
-  localStorage.setItem('admin_token', token);
-}
-
-function clearAuthToken(): void {
-  localStorage.removeItem('admin_token');
-}
-
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Request failed');
-  }
-  return response.json();
-}
-
 export const adminAuth = {
-  async login(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await apiClient.post('/api/admin/login', { username, password });
-      const data = await handleResponse<{ success: boolean; token: string; error?: string }>(response);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      if (data.success && data.token) {
-        setAuthToken(data.token);
-        return { success: true };
+      if (error) {
+        return { success: false, error: error.message || '登録失敗' };
       }
 
-      return { success: false, error: data.error || '登录失败' };
+      if (!data.user) {
+        return { success: false, error: '登録失敗' };
+      }
+
+      const isAdmin = data.user.app_metadata?.is_admin === true;
+      if (!isAdmin) {
+        await supabase.auth.signOut();
+        return { success: false, error: '権限がありません' };
+      }
+
+      return { success: true };
     } catch (error) {
       console.error('Login error:', error);
-      return { success: false, error: error instanceof Error ? error.message : '登录失败,请重试' };
+      return { success: false, error: error instanceof Error ? error.message : '登録失敗、もう一度お試しください' };
     }
   },
 
   async logout(): Promise<void> {
     try {
-      await apiClient.post('/api/admin/logout', {});
+      await supabase.auth.signOut();
     } catch (error) {
       console.error('Logout error:', error);
-    } finally {
-      clearAuthToken();
     }
   },
 
   async isAuthenticated(): Promise<boolean> {
     try {
-      const response = await apiClient.get('/api/admin/verify');
-      const data = await handleResponse<{ success: boolean }>(response);
-      return data.success;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return false;
+
+      const isAdmin = session.user.app_metadata?.is_admin === true;
+      return isAdmin;
     } catch {
       return false;
     }
@@ -64,15 +59,19 @@ export const adminAuth = {
 
   async getSession(): Promise<AdminSession | null> {
     try {
-      const response = await apiClient.get('/api/admin/verify');
-      const data = await handleResponse<{ success: boolean; user: any }>(response);
-      if (data.success && data.user) {
-        return {
-          user: data.user,
-          isAdmin: true
-        };
-      }
-      return null;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return null;
+
+      const isAdmin = session.user.app_metadata?.is_admin === true;
+      if (!isAdmin) return null;
+
+      return {
+        user: {
+          id: session.user.id,
+          email: session.user.email || '',
+        },
+        isAdmin: true,
+      };
     } catch {
       return null;
     }
@@ -80,11 +79,27 @@ export const adminAuth = {
 
   async getCurrentUser() {
     try {
-      const response = await apiClient.get('/api/admin/verify');
-      const data = await handleResponse<{ success: boolean; user: any }>(response);
-      return data.success ? data.user : null;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return null;
+
+      const isAdmin = session.user.app_metadata?.is_admin === true;
+      if (!isAdmin) return null;
+
+      return {
+        id: session.user.id,
+        email: session.user.email,
+      };
     } catch {
       return null;
     }
+  },
+
+  onAuthStateChange(callback: (isAdmin: boolean) => void) {
+    return supabase.auth.onAuthStateChange((event, session) => {
+      (async () => {
+        const isAdmin = session?.user?.app_metadata?.is_admin === true;
+        callback(isAdmin && session !== null);
+      })();
+    });
   }
 };
