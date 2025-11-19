@@ -1,5 +1,5 @@
 import express from 'express';
-import supabase from '../database/supabase.js';
+import { getSessionById, createSession, updateSession, createEvent } from '../database/sqliteHelpers.js';
 
 const router = express.Router();
 
@@ -11,38 +11,21 @@ router.post('/session', async (req, res) => {
       return res.status(400).json({ error: 'Session ID is required' });
     }
 
-    const { data: existing, error: selectError } = await supabase
-      .from('user_sessions')
-      .select('id')
-      .eq('session_id', sessionId)
-      .maybeSingle();
-
-    if (selectError) throw selectError;
+    const existing = getSessionById(sessionId);
 
     if (existing) {
-      const { error: updateError } = await supabase
-        .from('user_sessions')
-        .update({
-          stock_code: stockCode || null,
-          stock_name: stockName || null,
-          url_params: urlParams || {},
-          last_activity_at: new Date().toISOString()
-        })
-        .eq('session_id', sessionId);
-
-      if (updateError) throw updateError;
+      updateSession(sessionId, {
+        stock_code: stockCode,
+        stock_name: stockName
+      });
     } else {
-      const { error: insertError } = await supabase
-        .from('user_sessions')
-        .insert({
-          session_id: sessionId,
-          stock_code: stockCode || null,
-          stock_name: stockName || null,
-          url_params: urlParams || {},
-          user_agent: userAgent || null
-        });
-
-      if (insertError) throw insertError;
+      createSession({
+        session_id: sessionId,
+        stock_code: stockCode,
+        stock_name: stockName,
+        url_params: urlParams || {},
+        user_agent: userAgent
+      });
     }
 
     res.json({ success: true });
@@ -60,38 +43,19 @@ router.post('/event', async (req, res) => {
       return res.status(400).json({ error: 'Session ID and event type are required' });
     }
 
-    const { error: updateActivityError } = await supabase
-      .from('user_sessions')
-      .update({ last_activity_at: new Date().toISOString() })
-      .eq('session_id', sessionId);
-
-    if (updateActivityError) throw updateActivityError;
-
     if (eventType === 'conversion') {
-      const { error: convertError } = await supabase
-        .from('user_sessions')
-        .update({
-          converted: true,
-          converted_at: new Date().toISOString()
-        })
-        .eq('session_id', sessionId);
-
-      if (convertError) throw convertError;
+      updateSession(sessionId, { converted: true });
     }
 
-    const { error: insertError } = await supabase
-      .from('user_events')
-      .insert({
-        session_id: sessionId,
-        event_type: eventType,
-        event_data: eventData || {},
-        stock_code: stockCode || null,
-        stock_name: stockName || null,
-        duration_ms: durationMs || null,
-        gclid: gclid || null
-      });
-
-    if (insertError) throw insertError;
+    createEvent({
+      session_id: sessionId,
+      event_type: eventType,
+      event_data: eventData || {},
+      stock_code: stockCode,
+      stock_name: stockName,
+      duration_ms: durationMs,
+      gclid: gclid
+    });
 
     res.json({ success: true });
   } catch (error) {

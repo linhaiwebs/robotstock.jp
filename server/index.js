@@ -9,7 +9,8 @@ import adminRouter from './routes/admin.js';
 import trackingRouter from './routes/tracking.js';
 import lineRedirectRouter from './routes/lineRedirect.js';
 import googleTrackingRouter from './routes/googleTracking.js';
-import { cleanExpiredCache } from './utils/supabaseCache.js';
+import { cleanExpiredCache } from './utils/sqliteCache.js';
+import './database/sqlite.js';
 
 dotenv.config();
 

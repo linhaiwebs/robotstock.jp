@@ -1,5 +1,5 @@
 import express from 'express';
-import supabase from '../database/supabase.js';
+import { searchStocks, createOrUpdateStock } from '../database/sqliteHelpers.js';
 
 const router = express.Router();
 
@@ -103,28 +103,7 @@ router.get('/search', async (req, res) => {
     }
 
     const query = q.trim();
-
-    let results = [];
-
-    if (/^\d+$/.test(query)) {
-      const { data, error } = await supabase
-        .from('stocks')
-        .select('code, name, market, industry')
-        .ilike('code', `${query}%`)
-        .limit(10);
-
-      if (error) throw error;
-      results = data || [];
-    } else {
-      const { data, error } = await supabase
-        .from('stocks')
-        .select('code, name, market, industry')
-        .ilike('name', `%${query}%`)
-        .limit(10);
-
-      if (error) throw error;
-      results = data || [];
-    }
+    const results = searchStocks(query);
 
     res.json({ results });
   } catch (error) {
@@ -159,21 +138,13 @@ router.get('/data', async (req, res) => {
       return res.status(500).json({ error: 'Failed to parse stock data' });
     }
 
-    const { data: existingStock } = await supabase
-      .from('stocks')
-      .select('id')
-      .eq('code', code)
-      .maybeSingle();
-
-    if (!existingStock && stockInfo.name) {
-      await supabase
-        .from('stocks')
-        .insert({
-          code: stockInfo.code,
-          name: stockInfo.name,
-          market: stockInfo.market || '',
-          industry: stockInfo.industry || ''
-        });
+    if (stockInfo.name) {
+      createOrUpdateStock({
+        code: stockInfo.code,
+        name: stockInfo.name,
+        market: stockInfo.market || '',
+        industry: stockInfo.industry || ''
+      });
     }
 
     const data = {

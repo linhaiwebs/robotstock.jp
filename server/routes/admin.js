@@ -1,8 +1,8 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import supabase from '../database/supabase.js';
+import db from '../database/sqlite.js';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
-import { getSessionSummary, getPopularStocks } from '../database/supabaseHelpers.js';
+import { getSessionSummary, getPopularStocks, getAllSessions, getEventsBySessionId } from '../database/sqliteHelpers.js';
 
 const router = express.Router();
 
@@ -14,13 +14,9 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const { data: user, error } = await supabase
-      .from('admin_users')
-      .select('*')
-      .eq('username', username)
-      .maybeSingle();
-
-    if (error) throw error;
+    const user = db.prepare(`
+      SELECT * FROM admin_users WHERE username = ?
+    `).get(username);
 
     if (!user) {
       return res.status(401).json({ error: '用户名或密码错误' });
@@ -32,10 +28,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
 
-    await supabase
-      .from('admin_users')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', user.id);
+    db.prepare(`
+      UPDATE admin_users
+      SET last_login_at = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), user.id);
 
     const token = generateToken(user.id, user.username);
 
@@ -71,46 +68,16 @@ router.get('/sessions', authMiddleware, async (req, res) => {
     const limitNum = parseInt(limit);
     const offsetNum = parseInt(offset);
 
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-    const cutoff = cutoffDate.toISOString();
+    const { sessions, count } = getAllSessions(limitNum, offsetNum, daysBack);
 
-    const { data: sessions, error: sessionsError } = await supabase
-      .from('user_sessions')
-      .select('*')
-      .gte('first_visit_at', cutoff)
-      .order('first_visit_at', { ascending: false })
-      .range(offsetNum, offsetNum + limitNum - 1);
-
-    if (sessionsError) throw sessionsError;
-
-    const { count, error: countError } = await supabase
-      .from('user_sessions')
-      .select('*', { count: 'exact', head: true })
-      .gte('first_visit_at', cutoff);
-
-    if (countError) throw countError;
-
-    const sessionsWithEvents = await Promise.all(
-      (sessions || []).map(async (session) => {
-        const { data: events, error: eventsError } = await supabase
-          .from('user_events')
-          .select('*')
-          .eq('session_id', session.session_id)
-          .order('created_at', { ascending: true });
-
-        if (eventsError) throw eventsError;
-
-        return {
-          ...session,
-          events: events || []
-        };
-      })
-    );
+    const sessionsWithEvents = sessions.map(session => ({
+      ...session,
+      events: getEventsBySessionId(session.session_id)
+    }));
 
     res.json({
       sessions: sessionsWithEvents,
-      total: count || 0,
+      total: count,
       limit: limitNum,
       offset: offsetNum
     });
@@ -125,8 +92,8 @@ router.get('/stats', authMiddleware, async (req, res) => {
     const { days = 7 } = req.query;
     const daysBack = parseInt(days);
 
-    const summary = await getSessionSummary(daysBack);
-    const popularStocks = await getPopularStocks(daysBack, 10);
+    const summary = getSessionSummary(daysBack);
+    const popularStocks = getPopularStocks(daysBack, 10);
 
     res.json({
       summary,

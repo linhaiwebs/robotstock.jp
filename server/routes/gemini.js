@@ -1,8 +1,8 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { getCachedDiagnosis, saveDiagnosisToCache } from '../utils/supabaseCache.js';
+import { getCachedDiagnosis, saveDiagnosisToCache } from '../utils/sqliteCache.js';
 import { getRateLimitStatus } from '../utils/rateLimiter.js';
-import { recordUsageStats } from '../utils/supabaseStats.js';
+import { recordUsageStats } from '../utils/sqliteStats.js';
 
 dotenv.config();
 
