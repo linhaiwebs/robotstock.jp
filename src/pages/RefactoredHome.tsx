@@ -59,9 +59,11 @@ export default function RefactoredHome() {
   }, [stockData, stockCode, urlParams]);
 
   const fetchStockData = async (code: string) => {
-    if (!code || !/^\d{4}$/.test(code)) {
+    const cleanCode = code.replace(/[^\d]/g, '');
+
+    if (!cleanCode || !/^\d{4}$/.test(cleanCode)) {
       setStockData(null);
-      setStockCode(code);
+      setStockCode(cleanCode);
       setError(null);
       return;
     }
@@ -70,26 +72,31 @@ export default function RefactoredHome() {
     setError(null);
 
     try {
-      const response = await apiClient.get(`/api/stock/data?code=${code}`);
+      const response = await apiClient.get(`/api/stock/data?code=${cleanCode}`);
 
       if (!response.ok) {
         setStockData(null);
-        setStockCode(code);
+        setStockCode(cleanCode);
         setError(null);
         return;
       }
 
       const data = await response.json();
       setStockData(data);
-      setStockCode(code);
+      setStockCode(cleanCode);
       setError(null);
     } catch (err) {
       setStockData(null);
-      setStockCode(code);
+      setStockCode(cleanCode);
       setError(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStockSelect = (code: string, name: string) => {
+    setStockCode(code);
+    fetchStockData(code);
   };
 
   useEffect(() => {
@@ -112,7 +119,7 @@ export default function RefactoredHome() {
 
   const runDiagnosis = async () => {
     if (diagnosisState !== 'initial') return;
-    if (!inputValue) return;
+    if (!stockCode || !stockData) return;
 
     trackDiagnosisButtonClick();
 
@@ -149,7 +156,7 @@ export default function RefactoredHome() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          code: inputValue,
+          code: stockCode,
           stockData: stockData ? {
             name: stockData.info.name,
             price: stockData.info.price,
@@ -400,6 +407,7 @@ export default function RefactoredHome() {
             <StockCodeInput
               value={inputValue}
               onChange={setInputValue}
+              onStockSelect={handleStockSelect}
             />
 
             <DynamicAIPrompt
