@@ -244,7 +244,7 @@ PBR: ${stockData.pbr}倍
 router.get('/stats', async (req, res) => {
   try {
     const rateLimitStatus = getRateLimitStatus();
-    const { getTodayStats } = await import('../utils/supabaseStats.js');
+    const { getTodayStats } = await import('../utils/sqliteStats.js');
     const todayStats = await getTodayStats();
 
     res.json({

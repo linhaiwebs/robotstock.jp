@@ -82,3 +82,24 @@ export async function getUsageStats(daysBack = 7) {
     ORDER BY date DESC, hour DESC
   `).all(cutoff);
 }
+
+export async function getTodayStats() {
+  const today = new Date().toISOString().split('T')[0];
+
+  const stats = db.prepare(`
+    SELECT
+      SUM(requests_total) as requests_total,
+      SUM(cache_hits) as cache_hits,
+      SUM(api_calls) as api_calls,
+      SUM(errors_count) as errors_count
+    FROM api_usage_stats
+    WHERE date = ?
+  `).get(today);
+
+  return {
+    requests_total: stats?.requests_total || 0,
+    cache_hits: stats?.cache_hits || 0,
+    api_calls: stats?.api_calls || 0,
+    errors_count: stats?.errors_count || 0,
+  };
+}

@@ -1,23 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+import Database from 'better-sqlite3';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { randomUUID } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase credentials');
-  process.exit(1);
-}
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const dbPath = join(__dirname, '../server/data/database.db');
+const db = new Database(dbPath);
 
 async function importStocks() {
   try {
@@ -45,42 +36,40 @@ async function importStocks() {
 
     console.log(`Found ${stocksData.length} stocks in JSON file`);
 
-    const batchSize = 100;
     let imported = 0;
     let skipped = 0;
     let errors = 0;
 
-    for (let i = 0; i < stocksData.length; i += batchSize) {
-      const batch = stocksData.slice(i, i + batchSize);
+    const insertStmt = db.prepare(`
+      INSERT OR IGNORE INTO stocks (id, code, name, market, industry)
+      VALUES (?, ?, ?, ?, ?)
+    `);
 
-      const stocksToInsert = batch
-        .filter(stock => stock.name && /^\d+[A-Z]?$/.test(stock.name))
-        .map(stock => ({
-          code: stock.name,
-          name: stock.description || '',
-          market: stock.exchange || 'TSE',
-          industry: ''
-        }));
-
-      if (stocksToInsert.length === 0) {
-        skipped += batch.length;
-        continue;
+    const insertMany = db.transaction((stocks) => {
+      for (const stock of stocks) {
+        insertStmt.run(stock.id, stock.code, stock.name, stock.market, stock.industry);
       }
+    });
 
-      const { data, error } = await supabase
-        .from('stocks')
-        .upsert(stocksToInsert, {
-          onConflict: 'code',
-          ignoreDuplicates: true
-        });
+    const validStocks = stocksData
+      .filter(stock => stock.name && /^\d+[A-Z]?$/.test(stock.name))
+      .map(stock => ({
+        id: randomUUID(),
+        code: stock.name,
+        name: stock.description || '',
+        market: stock.exchange || 'TSE',
+        industry: ''
+      }));
 
-      if (error) {
-        console.error(`Error inserting batch ${i / batchSize + 1}:`, error.message);
-        errors += stocksToInsert.length;
-      } else {
-        imported += stocksToInsert.length;
-        console.log(`Imported batch ${i / batchSize + 1}: ${stocksToInsert.length} stocks (Total: ${imported})`);
-      }
+    skipped = stocksData.length - validStocks.length;
+
+    try {
+      insertMany(validStocks);
+      imported = validStocks.length;
+      console.log(`Imported ${imported} stocks`);
+    } catch (error) {
+      console.error('Error inserting stocks:', error.message);
+      errors = validStocks.length;
     }
 
     console.log('\n=== Import Summary ===');
@@ -89,16 +78,13 @@ async function importStocks() {
     console.log(`Skipped: ${skipped}`);
     console.log(`Errors: ${errors}`);
 
-    const { count, error: countError } = await supabase
-      .from('stocks')
-      .select('*', { count: 'exact', head: true });
+    const count = db.prepare('SELECT COUNT(*) as count FROM stocks').get().count;
+    console.log(`Total stocks in database: ${count}`);
 
-    if (!countError) {
-      console.log(`Total stocks in database: ${count}`);
-    }
-
+    db.close();
   } catch (error) {
     console.error('Error importing stocks:', error);
+    db.close();
     process.exit(1);
   }
 }

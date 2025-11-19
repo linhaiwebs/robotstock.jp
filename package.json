@@ -16,7 +16,6 @@
     "create-admin": "node server/scripts/createAdminUser.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.83.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.4.1",
     "cors": "^2.8.5",
