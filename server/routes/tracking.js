@@ -1,6 +1,5 @@
 import express from 'express';
-import db from '../database/db.js';
-import { generateUUID } from '../database/helpers.js';
+import supabase from '../database/supabase.js';
 
 const router = express.Router();
 
@@ -12,37 +11,38 @@ router.post('/session', async (req, res) => {
       return res.status(400).json({ error: 'Session ID is required' });
     }
 
-    const existingStmt = db.prepare('SELECT id FROM user_sessions WHERE session_id = ?');
-    const existing = existingStmt.get(sessionId);
+    const { data: existing, error: selectError } = await supabase
+      .from('user_sessions')
+      .select('id')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+
+    if (selectError) throw selectError;
 
     if (existing) {
-      const updateStmt = db.prepare(`
-        UPDATE user_sessions
-        SET stock_code = ?, stock_name = ?, url_params = ?, last_activity_at = ?
-        WHERE session_id = ?
-      `);
-      updateStmt.run(
-        stockCode || null,
-        stockName || null,
-        JSON.stringify(urlParams || {}),
-        new Date().toISOString(),
-        sessionId
-      );
+      const { error: updateError } = await supabase
+        .from('user_sessions')
+        .update({
+          stock_code: stockCode || null,
+          stock_name: stockName || null,
+          url_params: urlParams || {},
+          last_activity_at: new Date().toISOString()
+        })
+        .eq('session_id', sessionId);
+
+      if (updateError) throw updateError;
     } else {
-      const id = generateUUID();
-      const insertStmt = db.prepare(`
-        INSERT INTO user_sessions
-        (id, session_id, stock_code, stock_name, url_params, user_agent)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insertStmt.run(
-        id,
-        sessionId,
-        stockCode || null,
-        stockName || null,
-        JSON.stringify(urlParams || {}),
-        userAgent || null
-      );
+      const { error: insertError } = await supabase
+        .from('user_sessions')
+        .insert({
+          session_id: sessionId,
+          stock_code: stockCode || null,
+          stock_name: stockName || null,
+          url_params: urlParams || {},
+          user_agent: userAgent || null
+        });
+
+      if (insertError) throw insertError;
     }
 
     res.json({ success: true });
@@ -60,39 +60,38 @@ router.post('/event', async (req, res) => {
       return res.status(400).json({ error: 'Session ID and event type are required' });
     }
 
-    const updateStmt = db.prepare(`
-      UPDATE user_sessions
-      SET last_activity_at = ?
-      WHERE session_id = ?
-    `);
-    updateStmt.run(new Date().toISOString(), sessionId);
+    const { error: updateActivityError } = await supabase
+      .from('user_sessions')
+      .update({ last_activity_at: new Date().toISOString() })
+      .eq('session_id', sessionId);
+
+    if (updateActivityError) throw updateActivityError;
 
     if (eventType === 'conversion') {
-      const convertStmt = db.prepare(`
-        UPDATE user_sessions
-        SET converted = 1, converted_at = ?
-        WHERE session_id = ?
-      `);
-      convertStmt.run(new Date().toISOString(), sessionId);
+      const { error: convertError } = await supabase
+        .from('user_sessions')
+        .update({
+          converted: true,
+          converted_at: new Date().toISOString()
+        })
+        .eq('session_id', sessionId);
+
+      if (convertError) throw convertError;
     }
 
-    const id = generateUUID();
-    const insertStmt = db.prepare(`
-      INSERT INTO user_events
-      (id, session_id, event_type, event_data, stock_code, stock_name, duration_ms, gclid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const { error: insertError } = await supabase
+      .from('user_events')
+      .insert({
+        session_id: sessionId,
+        event_type: eventType,
+        event_data: eventData || {},
+        stock_code: stockCode || null,
+        stock_name: stockName || null,
+        duration_ms: durationMs || null,
+        gclid: gclid || null
+      });
 
-    insertStmt.run(
-      id,
-      sessionId,
-      eventType,
-      JSON.stringify(eventData || {}),
-      stockCode || null,
-      stockName || null,
-      durationMs || null,
-      gclid || null
-    );
+    if (insertError) throw insertError;
 
     res.json({ success: true });
   } catch (error) {

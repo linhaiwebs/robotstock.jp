@@ -1,6 +1,5 @@
 import express from 'express';
-import db from '../database/db.js';
-import { generateUUID } from '../database/helpers.js';
+import supabase from '../database/supabase.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -14,7 +13,7 @@ function isValidUrl(urlString) {
   }
 }
 
-router.get('/', authMiddleware, (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
@@ -23,20 +22,23 @@ router.get('/', authMiddleware, (req, res) => {
   });
 
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM redirect_links
-      ORDER BY is_active DESC, weight DESC, created_at DESC
-    `);
-    const links = stmt.all();
+    const { data: links, error } = await supabase
+      .from('redirect_links')
+      .select('*')
+      .order('is_active', { ascending: false })
+      .order('weight', { ascending: false })
+      .order('created_at', { ascending: false });
 
-    res.json({ success: true, links });
+    if (error) throw error;
+
+    res.json({ success: true, links: links || [] });
   } catch (error) {
     console.error('Error fetching redirect links:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch links' });
   }
 });
 
-router.post('/', authMiddleware, (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
@@ -54,26 +56,30 @@ router.post('/', authMiddleware, (req, res) => {
       return res.status(400).json({ success: false, error: 'Weight must be between 1 and 100' });
     }
 
-    const checkDuplicateStmt = db.prepare('SELECT id FROM redirect_links WHERE redirect_url = ?');
-    const existingLink = checkDuplicateStmt.get(redirect_url);
+    const { data: existingLink, error: checkError } = await supabase
+      .from('redirect_links')
+      .select('id')
+      .eq('redirect_url', redirect_url)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
 
     if (existingLink) {
       return res.status(400).json({ success: false, error: 'This URL already exists' });
     }
 
-    const id = generateUUID();
-    const finalLabel = label || '';
-    const finalUrlType = url_type || 'general';
+    const { data: newLink, error: insertError } = await supabase
+      .from('redirect_links')
+      .insert({
+        redirect_url,
+        weight,
+        label: label || '',
+        url_type: url_type || 'general'
+      })
+      .select()
+      .single();
 
-    const stmt = db.prepare(`
-      INSERT INTO redirect_links (id, redirect_url, weight, label, url_type)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(id, redirect_url, weight, finalLabel, finalUrlType);
-
-    const getStmt = db.prepare('SELECT * FROM redirect_links WHERE id = ?');
-    const newLink = getStmt.get(id);
+    if (insertError) throw insertError;
 
     res.json({ success: true, link: newLink });
   } catch (error) {
@@ -82,7 +88,7 @@ router.post('/', authMiddleware, (req, res) => {
   }
 });
 
-router.put('/:id', authMiddleware, (req, res) => {
+router.put('/:id', authMiddleware, async (req, res) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
@@ -101,55 +107,41 @@ router.put('/:id', authMiddleware, (req, res) => {
       return res.status(400).json({ success: false, error: 'Weight must be between 1 and 100' });
     }
 
-    const updates = [];
-    const values = [];
+    const updates = { updated_at: new Date().toISOString() };
 
     if (redirect_url !== undefined) {
-      const checkDuplicateStmt = db.prepare('SELECT id FROM redirect_links WHERE redirect_url = ? AND id != ?');
-      const existingLink = checkDuplicateStmt.get(redirect_url, id);
+      const { data: existingLink, error: checkError } = await supabase
+        .from('redirect_links')
+        .select('id')
+        .eq('redirect_url', redirect_url)
+        .neq('id', id)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
 
       if (existingLink) {
         return res.status(400).json({ success: false, error: 'This URL already exists' });
       }
 
-      updates.push('redirect_url = ?');
-      values.push(redirect_url);
+      updates.redirect_url = redirect_url;
     }
-    if (weight !== undefined) {
-      updates.push('weight = ?');
-      values.push(weight);
-    }
-    if (is_active !== undefined) {
-      updates.push('is_active = ?');
-      values.push(is_active ? 1 : 0);
-    }
-    if (label !== undefined) {
-      updates.push('label = ?');
-      values.push(label);
-    }
-    if (url_type !== undefined) {
-      updates.push('url_type = ?');
-      values.push(url_type);
-    }
+    if (weight !== undefined) updates.weight = weight;
+    if (is_active !== undefined) updates.is_active = is_active;
+    if (label !== undefined) updates.label = label;
+    if (url_type !== undefined) updates.url_type = url_type;
 
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 1) {
       return res.status(400).json({ success: false, error: 'No fields to update' });
     }
 
-    updates.push('updated_at = ?');
-    values.push(new Date().toISOString());
-    values.push(id);
+    const { data: updatedLink, error: updateError } = await supabase
+      .from('redirect_links')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
 
-    const stmt = db.prepare(`
-      UPDATE redirect_links
-      SET ${updates.join(', ')}
-      WHERE id = ?
-    `);
-
-    stmt.run(...values);
-
-    const getStmt = db.prepare('SELECT * FROM redirect_links WHERE id = ?');
-    const updatedLink = getStmt.get(id);
+    if (updateError) throw updateError;
 
     res.json({ success: true, link: updatedLink });
   } catch (error) {
@@ -158,7 +150,7 @@ router.put('/:id', authMiddleware, (req, res) => {
   }
 });
 
-router.delete('/:id', authMiddleware, (req, res) => {
+router.delete('/:id', authMiddleware, async (req, res) => {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
@@ -168,8 +160,12 @@ router.delete('/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
 
-    const stmt = db.prepare('DELETE FROM redirect_links WHERE id = ?');
-    stmt.run(id);
+    const { error } = await supabase
+      .from('redirect_links')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
 
     res.json({ success: true });
   } catch (error) {
@@ -180,14 +176,15 @@ router.delete('/:id', authMiddleware, (req, res) => {
 
 router.get('/select', async (req, res) => {
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM redirect_links
-      WHERE is_active = 1
-      ORDER BY weight DESC
-    `);
-    const activeLinks = stmt.all();
+    const { data: activeLinks, error } = await supabase
+      .from('redirect_links')
+      .select('*')
+      .eq('is_active', true)
+      .order('weight', { ascending: false });
 
-    if (activeLinks.length === 0) {
+    if (error) throw error;
+
+    if (!activeLinks || activeLinks.length === 0) {
       return res.status(404).json({ success: false, error: 'No active links available' });
     }
 
@@ -203,12 +200,12 @@ router.get('/select', async (req, res) => {
       }
     }
 
-    const updateStmt = db.prepare(`
-      UPDATE redirect_links
-      SET hit_count = hit_count + 1
-      WHERE id = ?
-    `);
-    updateStmt.run(selectedLink.id);
+    const { error: updateError } = await supabase
+      .from('redirect_links')
+      .update({ hit_count: selectedLink.hit_count + 1 })
+      .eq('id', selectedLink.id);
+
+    if (updateError) throw updateError;
 
     res.json({ success: true, link: selectedLink });
   } catch (error) {

@@ -1,8 +1,8 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
-import db from '../database/db.js';
+import supabase from '../database/supabase.js';
 import { generateToken, authMiddleware } from '../middleware/auth.js';
-import { getSessionSummary, getPopularStocks } from '../database/helpers.js';
+import { getSessionSummary, getPopularStocks } from '../database/supabaseHelpers.js';
 
 const router = express.Router();
 
@@ -14,8 +14,13 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const stmt = db.prepare('SELECT * FROM admin_users WHERE username = ?');
-    const user = stmt.get(username);
+    const { data: user, error } = await supabase
+      .from('admin_users')
+      .select('*')
+      .eq('username', username)
+      .maybeSingle();
+
+    if (error) throw error;
 
     if (!user) {
       return res.status(401).json({ error: '用户名或密码错误' });
@@ -27,8 +32,10 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
 
-    const updateStmt = db.prepare('UPDATE admin_users SET last_login_at = ? WHERE id = ?');
-    updateStmt.run(new Date().toISOString(), user.id);
+    await supabase
+      .from('admin_users')
+      .update({ last_login_at: new Date().toISOString() })
+      .eq('id', user.id);
 
     const token = generateToken(user.id, user.username);
 
@@ -68,42 +75,42 @@ router.get('/sessions', authMiddleware, async (req, res) => {
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
     const cutoff = cutoffDate.toISOString();
 
-    const stmt = db.prepare(`
-      SELECT * FROM user_sessions
-      WHERE first_visit_at >= ?
-      ORDER BY first_visit_at DESC
-      LIMIT ? OFFSET ?
-    `);
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('user_sessions')
+      .select('*')
+      .gte('first_visit_at', cutoff)
+      .order('first_visit_at', { ascending: false })
+      .range(offsetNum, offsetNum + limitNum - 1);
 
-    const sessions = stmt.all(cutoff, limitNum, offsetNum);
+    if (sessionsError) throw sessionsError;
 
-    const countStmt = db.prepare(`
-      SELECT COUNT(*) as total FROM user_sessions
-      WHERE first_visit_at >= ?
-    `);
-    const { total } = countStmt.get(cutoff);
+    const { count, error: countError } = await supabase
+      .from('user_sessions')
+      .select('*', { count: 'exact', head: true })
+      .gte('first_visit_at', cutoff);
 
-    const sessionsWithEvents = sessions.map(session => {
-      const eventsStmt = db.prepare(`
-        SELECT * FROM user_events
-        WHERE session_id = ?
-        ORDER BY created_at ASC
-      `);
-      const events = eventsStmt.all(session.session_id);
+    if (countError) throw countError;
 
-      return {
-        ...session,
-        url_params: JSON.parse(session.url_params),
-        events: events.map(e => ({
-          ...e,
-          event_data: JSON.parse(e.event_data)
-        }))
-      };
-    });
+    const sessionsWithEvents = await Promise.all(
+      (sessions || []).map(async (session) => {
+        const { data: events, error: eventsError } = await supabase
+          .from('user_events')
+          .select('*')
+          .eq('session_id', session.session_id)
+          .order('created_at', { ascending: true });
+
+        if (eventsError) throw eventsError;
+
+        return {
+          ...session,
+          events: events || []
+        };
+      })
+    );
 
     res.json({
       sessions: sessionsWithEvents,
-      total,
+      total: count || 0,
       limit: limitNum,
       offset: offsetNum
     });
@@ -118,8 +125,8 @@ router.get('/stats', authMiddleware, async (req, res) => {
     const { days = 7 } = req.query;
     const daysBack = parseInt(days);
 
-    const summary = getSessionSummary(daysBack);
-    const popularStocks = getPopularStocks(daysBack, 10);
+    const summary = await getSessionSummary(daysBack);
+    const popularStocks = await getPopularStocks(daysBack, 10);
 
     res.json({
       summary,

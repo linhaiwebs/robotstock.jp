@@ -1,8 +1,8 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { getCachedDiagnosis, saveDiagnosisToCache } from '../utils/cache.js';
+import { getCachedDiagnosis, saveDiagnosisToCache } from '../utils/supabaseCache.js';
 import { getRateLimitStatus } from '../utils/rateLimiter.js';
-import { recordUsageStats } from '../utils/stats.js';
+import { recordUsageStats } from '../utils/supabaseStats.js';
 
 dotenv.config();
 
@@ -244,7 +244,7 @@ PBR: ${stockData.pbr}倍
 router.get('/stats', async (req, res) => {
   try {
     const rateLimitStatus = getRateLimitStatus();
-    const { getTodayStats } = await import('../utils/stats.js');
+    const { getTodayStats } = await import('../utils/supabaseStats.js');
     const todayStats = await getTodayStats();
 
     res.json({

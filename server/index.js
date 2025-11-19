@@ -9,8 +9,7 @@ import adminRouter from './routes/admin.js';
 import trackingRouter from './routes/tracking.js';
 import lineRedirectRouter from './routes/lineRedirect.js';
 import googleTrackingRouter from './routes/googleTracking.js';
-import { initializeDatabase, createInitialAdminUser, migrateLineRedirectLinks } from './database/schema.js';
-import { cleanExpiredCache } from './utils/cache.js';
+import { cleanExpiredCache } from './utils/supabaseCache.js';
 
 dotenv.config();
 
@@ -21,10 +20,6 @@ const PORT = process.env.API_PORT || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const CORS_ORIGIN = process.env.CORS_ORIGIN;
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
-
-initializeDatabase();
-migrateLineRedirectLinks();
-await createInitialAdminUser();
 
 setInterval(async () => {
   console.log('Running scheduled cache cleanup...');
